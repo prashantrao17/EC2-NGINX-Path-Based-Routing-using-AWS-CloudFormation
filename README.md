@@ -1,29 +1,111 @@
-# 🌍 EC2 NGINX Path-Based Routing using AWS CloudFormation
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Mini Project: EC2 with NGINX path-based routing for all planets
+  (/earth, /moon, /mars, /mercury, /venus, /jupiter, /saturn, /uranus, /neptune)
 
-This mini project demonstrates how to deploy an **EC2 instance with NGINX** using **AWS CloudFormation**, configured for **path-based routing** to serve different HTML pages for all planets in the solar system.
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing EC2 Key Pair name
 
----
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where EC2 will be launched
 
-## 📌 Project Overview
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public subnet in the VPC
 
-- Launches an **Amazon EC2 instance** using CloudFormation
-- Installs and configures **NGINX** automatically using **UserData**
-- Implements **path-based routing** (e.g., `/earth`, `/mars`, `/venus`)
-- Hosts static HTML pages for **all planets**
-- Uses **AWS Security Groups** to allow HTTP traffic
-- Fully **Infrastructure as Code (IaC)** solution
+Resources:
 
----
+  NginxSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP access
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
 
-## 🛠️ Technologies Used
+  NginxEC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      ImageId: ami-0b818a04bc9c2133c   # Amazon Linux 2 (ap-northeast-2)
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref NginxSecurityGroup
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum update -y
+          amazon-linux-extras enable nginx1
+          yum install -y nginx
 
-- AWS CloudFormation (YAML)
-- Amazon EC2
-- NGINX Web Server
-- Amazon Linux 2
-- Linux Bash Scripting
+          cat << 'EOF' > /etc/nginx/nginx.conf
+          user nginx;
+          worker_processes auto;
+          error_log /var/log/nginx/error.log notice;
+          pid /run/nginx.pid;
+          include /usr/share/nginx/modules/*.conf;
 
----
+          events {
+              worker_connections 1024;
+          }
 
-## 🗂️ Project Structure
+          http {
+              log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                              '$status $body_bytes_sent "$http_referer" '
+                              '"$http_user_agent" "$http_x_forwarded_for"';
 
+              access_log /var/log/nginx/access.log main;
+
+              sendfile on;
+              tcp_nopush on;
+              keepalive_timeout 65;
+              types_hash_max_size 4096;
+
+              include /etc/nginx/mime.types;
+              default_type application/octet-stream;
+
+              server {
+                  listen 80;
+                  server_name _;
+                  root /usr/share/nginx/html;
+                  index index.html;
+
+                  location /earth    { try_files /earth.html =404; }
+                  location /moon     { try_files /moon.html =404; }
+                  location /mars     { try_files /mars.html =404; }
+                  location /mercury  { try_files /mercury.html =404; }
+                  location /venus    { try_files /venus.html =404; }
+                  location /jupiter  { try_files /jupiter.html =404; }
+                  location /saturn   { try_files /saturn.html =404; }
+                  location /uranus   { try_files /uranus.html =404; }
+                  location /neptune  { try_files /neptune.html =404; }
+
+                  error_page 404 /404.html;
+                  location = /404.html {}
+
+                  error_page 500 502 503 504 /50x.html;
+                  location = /50x.html {}
+              }
+          }
+          EOF
+
+          cd /usr/share/nginx/html
+          for planet in earth moon mars mercury venus jupiter saturn uranus neptune
+          do
+            echo "<h1>Welcome to $planet</h1>" > $planet.html
+          done
+
+          systemctl enable nginx
+          systemctl restart nginx
+
+Outputs:
+  WebsiteURL:
+    Description: Access the website using this URL
+    Value: !Sub "http://${NginxEC2.PublicDnsName}"
